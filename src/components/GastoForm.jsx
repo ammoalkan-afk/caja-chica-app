@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import Modal from './Modal'
 import { CATEGORIAS_SUGERIDAS, METODOS_PAGO } from '../lib/data'
 import { todayISO } from '../lib/format'
@@ -19,6 +19,7 @@ export default function GastoForm({ initial, onSave, onClose, saving }) {
   const [error, setError] = useState('')
   const [comprobanteFile, setComprobanteFile] = useState(null)
   const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef(null)
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
@@ -144,11 +145,22 @@ export default function GastoForm({ initial, onSave, onClose, saving }) {
 
         <Field label="Foto del comprobante (opcional)">
           <input
+            ref={fileInputRef}
             type="file"
             accept="image/*"
             onChange={(e) => setComprobanteFile(e.target.files?.[0] || null)}
-            className="input"
+            className="hidden"
           />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="input text-left text-ink-muted hover:bg-sand-50"
+          >
+            Seleccionar archivo
+          </button>
+          {comprobanteFile && (
+            <p className="mt-1.5 text-xs text-ink-muted">{comprobanteFile.name}</p>
+          )}
         </Field>
 
         {error && <p className="text-sm text-coral-500">{error}</p>}
