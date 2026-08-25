@@ -79,7 +79,7 @@ export default function ReposicionForm({ initial, onSave, onClose, saving }) {
           <button
             type="submit"
             disabled={saving}
-            className="rounded-lg bg-ink-900 px-4 py-2 text-sm font-medium text-white hover:bg-ink-800 disabled:opacity-60"
+            className="rounded-xl bg-gradient-to-br from-accent-500 to-accent-600 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-accent-500/30 hover:opacity-90 disabled:opacity-60"
           >
             {saving ? 'Guardando…' : 'Guardar reposición'}
           </button>

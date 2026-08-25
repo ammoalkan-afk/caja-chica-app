@@ -80,7 +80,7 @@ export default function Gastos() {
             setEditing(null)
             setShowForm(true)
           }}
-          className="flex items-center gap-2 rounded-lg bg-ink-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-ink-800"
+          className="flex items-center gap-2 rounded-xl bg-gradient-to-br from-accent-500 to-accent-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm shadow-accent-500/30 hover:opacity-90"
         >
           <Plus size={16} />
           Nuevo gasto

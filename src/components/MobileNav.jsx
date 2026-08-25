@@ -15,7 +15,7 @@ export default function MobileNav() {
           to={to}
           className={({ isActive }) =>
             `flex flex-1 items-center justify-center gap-2 border-b-2 py-3 text-sm font-medium ${
-              isActive ? 'border-lime-500 text-ink-900' : 'border-transparent text-ink-muted'
+              isActive ? 'border-accent-500 text-accent-700' : 'border-transparent text-ink-muted'
             }`
           }
         >
