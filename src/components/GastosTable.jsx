@@ -1,4 +1,4 @@
-import { Pencil, Trash2, Receipt } from 'lucide-react'
+import { Pencil, Trash2, Receipt, Image as ImageIcon } from 'lucide-react'
 import { formatMoney, formatDate } from '../lib/format'
 
 export default function GastosTable({ gastos, onEdit, onDelete }) {
@@ -47,6 +47,15 @@ export default function GastosTable({ gastos, onEdit, onDelete }) {
               </td>
               <td className="py-3 pr-2">
                 <div className="flex justify-end gap-1">
+                  {g.comprobante_url && (
+                    <button
+                      onClick={() => window.open(g.comprobante_url, '_blank', 'noopener,noreferrer')}
+                      className="rounded-lg p-1.5 text-ink-muted hover:bg-sand-100 hover:text-ink-900"
+                      aria-label="Ver comprobante"
+                    >
+                      <ImageIcon size={15} />
+                    </button>
+                  )}
                   <button
                     onClick={() => onEdit(g)}
                     className="rounded-lg p-1.5 text-ink-muted hover:bg-sand-100 hover:text-ink-900"

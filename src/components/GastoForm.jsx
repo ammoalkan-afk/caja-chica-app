@@ -2,6 +2,7 @@ import { useState } from 'react'
 import Modal from './Modal'
 import { CATEGORIAS_SUGERIDAS, METODOS_PAGO } from '../lib/data'
 import { todayISO } from '../lib/format'
+import { supabase } from '../lib/supabaseClient'
 
 const empty = {
   fecha: todayISO(),
@@ -16,17 +17,42 @@ const empty = {
 export default function GastoForm({ initial, onSave, onClose, saving }) {
   const [form, setForm] = useState(initial ? { ...empty, ...initial } : empty)
   const [error, setError] = useState('')
+  const [comprobanteFile, setComprobanteFile] = useState(null)
+  const [uploading, setUploading] = useState(false)
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
     if (!form.concepto.trim()) return setError('El concepto es obligatorio.')
     if (!form.monto || Number(form.monto) <= 0) return setError('Ingresa un monto válido.')
     setError('')
-    onSave({ ...form, monto: Number(form.monto) })
+
+    let comprobante_url = form.comprobante_url
+
+    if (comprobanteFile) {
+      setUploading(true)
+      try {
+        const ext = comprobanteFile.name.split('.').pop()
+        const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+        const { error: uploadError } = await supabase.storage
+          .from('comprobantes')
+          .upload(fileName, comprobanteFile)
+        if (uploadError) throw uploadError
+        const { data: publicUrlData } = supabase.storage.from('comprobantes').getPublicUrl(fileName)
+        comprobante_url = publicUrlData.publicUrl
+      } catch (err) {
+        setUploading(false)
+        setError('No se pudo subir la foto del comprobante.')
+        console.error(err)
+        return
+      }
+      setUploading(false)
+    }
+
+    onSave({ ...form, monto: Number(form.monto), comprobante_url })
   }
 
   return (
@@ -116,6 +142,15 @@ export default function GastoForm({ initial, onSave, onClose, saving }) {
           />
         </Field>
 
+        <Field label="Foto del comprobante (opcional)">
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => setComprobanteFile(e.target.files?.[0] || null)}
+            className="input"
+          />
+        </Field>
+
         {error && <p className="text-sm text-coral-500">{error}</p>}
 
         <div className="flex justify-end gap-3 pt-2">
@@ -124,10 +159,10 @@ export default function GastoForm({ initial, onSave, onClose, saving }) {
           </button>
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || uploading}
             className="rounded-xl bg-gradient-to-br from-accent-500 to-accent-600 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-accent-500/30 hover:opacity-90 disabled:opacity-60"
           >
-            {saving ? 'Guardando…' : 'Guardar gasto'}
+            {uploading ? 'Subiendo…' : saving ? 'Guardando…' : 'Guardar gasto'}
           </button>
         </div>
       </form>
