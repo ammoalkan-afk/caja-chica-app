@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom'
-import { Receipt, RefreshCcw } from 'lucide-react'
+import { Receipt, RefreshCcw, Users } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
 
 const navItems = [
   { to: '/gastos', label: 'Gastos', icon: Receipt },
@@ -7,9 +8,12 @@ const navItems = [
 ]
 
 export default function MobileNav() {
+  const { perfil } = useAuth()
+  const items = perfil?.rol === 'admin' ? [...navItems, { to: '/usuarios', label: 'Usuarios', icon: Users }] : navItems
+
   return (
     <nav className="md:hidden flex border-b border-sand-100 bg-white px-2">
-      {navItems.map(({ to, label, icon: Icon }) => (
+      {items.map(({ to, label, icon: Icon }) => (
         <NavLink
           key={to}
           to={to}
