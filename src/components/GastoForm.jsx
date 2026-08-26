@@ -9,9 +9,22 @@ const empty = {
   concepto: '',
   categoria: '',
   proveedor: '',
+  comprobante_nro: '',
   monto: '',
   metodo_pago: 'Efectivo',
   notas: '',
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result
+      resolve(typeof result === 'string' ? result.split(',')[1] : '')
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
 }
 
 export default function GastoForm({ initial, onSave, onClose, saving }) {
@@ -19,10 +32,37 @@ export default function GastoForm({ initial, onSave, onClose, saving }) {
   const [error, setError] = useState('')
   const [comprobanteFile, setComprobanteFile] = useState(null)
   const [uploading, setUploading] = useState(false)
+  const [extracting, setExtracting] = useState(false)
   const fileInputRef = useRef(null)
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
+  }
+
+  async function handleExtraer() {
+    if (!comprobanteFile) return
+    setExtracting(true)
+    setError('')
+    try {
+      const base64 = await fileToBase64(comprobanteFile)
+      const res = await fetch('/.netlify/functions/extraer-datos', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ image: base64, mediaType: comprobanteFile.type || 'image/jpeg' }),
+      })
+      if (!res.ok) throw new Error('Respuesta no exitosa del servidor')
+      const data = await res.json()
+      setForm((f) => ({
+        ...f,
+        comprobante_nro: data.comprobante_nro || f.comprobante_nro,
+        proveedor: data.proveedor || f.proveedor,
+      }))
+    } catch (err) {
+      setError('No se pudieron extraer los datos del comprobante.')
+      console.error(err)
+    } finally {
+      setExtracting(false)
+    }
   }
 
   async function handleSubmit(e) {
@@ -124,15 +164,26 @@ export default function GastoForm({ initial, onSave, onClose, saving }) {
           </Field>
         </div>
 
-        <Field label="Proveedor (opcional)">
-          <input
-            type="text"
-            value={form.proveedor}
-            onChange={(e) => update('proveedor', e.target.value)}
-            placeholder="Ej: Librería Central"
-            className="input"
-          />
-        </Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Proveedor (opcional)">
+            <input
+              type="text"
+              value={form.proveedor}
+              onChange={(e) => update('proveedor', e.target.value)}
+              placeholder="Ej: Librería Central"
+              className="input"
+            />
+          </Field>
+          <Field label="Comprobante Nro. (opcional)">
+            <input
+              type="text"
+              value={form.comprobante_nro}
+              onChange={(e) => update('comprobante_nro', e.target.value)}
+              placeholder="Ej: 0001-00012345"
+              className="input"
+            />
+          </Field>
+        </div>
 
         <Field label="Notas (opcional)">
           <textarea
@@ -151,13 +202,23 @@ export default function GastoForm({ initial, onSave, onClose, saving }) {
             onChange={(e) => setComprobanteFile(e.target.files?.[0] || null)}
             className="hidden"
           />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="input text-left text-ink-muted hover:bg-sand-50"
-          >
-            Seleccionar archivo
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="input flex-1 text-left text-ink-muted hover:bg-sand-50"
+            >
+              Seleccionar archivo
+            </button>
+            <button
+              type="button"
+              onClick={handleExtraer}
+              disabled={!comprobanteFile || extracting}
+              className="whitespace-nowrap rounded-xl border border-sand-200 px-3 py-2 text-sm font-medium text-ink-900 hover:bg-sand-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {extracting ? 'Analizando…' : 'Extraer datos'}
+            </button>
+          </div>
           {comprobanteFile && (
             <p className="mt-1.5 text-xs text-ink-muted">{comprobanteFile.name}</p>
           )}
