@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import Modal from './Modal'
 import { CATEGORIAS_SUGERIDAS, METODOS_PAGO } from '../lib/data'
 import { todayISO } from '../lib/format'
@@ -9,9 +9,44 @@ const empty = {
   concepto: '',
   categoria: '',
   proveedor: '',
+  comprobante_nro: '',
   monto: '',
   metodo_pago: 'Efectivo',
   notas: '',
+}
+
+function readAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(new Error('No se pudo leer el archivo.'))
+    reader.readAsDataURL(file)
+  })
+}
+
+// Redimensiona/comprime la foto antes de mandarla a la función de IA para no
+// pasarse del límite de payload de Netlify Functions (~6MB) con fotos de celular.
+async function resizeImageForAnalysis(file, maxWidth = 1500, quality = 0.8) {
+  const dataUrl = await readAsDataURL(file)
+  const img = new Image()
+  await new Promise((resolve, reject) => {
+    img.onload = resolve
+    img.onerror = () => reject(new Error('No se pudo procesar la imagen.'))
+    img.src = dataUrl
+  })
+
+  const scale = Math.min(1, maxWidth / img.width)
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(img.width * scale)
+  canvas.height = Math.round(img.height * scale)
+  const ctx = canvas.getContext('2d')
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('No se pudo comprimir la imagen.'))), 'image/jpeg', quality)
+  })
+  const resizedDataUrl = await readAsDataURL(blob)
+  return { base64: resizedDataUrl.split(',')[1], mediaType: 'image/jpeg' }
 }
 
 export default function GastoForm({ initial, onSave, onClose, saving }) {
@@ -19,9 +54,52 @@ export default function GastoForm({ initial, onSave, onClose, saving }) {
   const [error, setError] = useState('')
   const [comprobanteFile, setComprobanteFile] = useState(null)
   const [uploading, setUploading] = useState(false)
+  const [extracting, setExtracting] = useState(false)
+  const fileInputRef = useRef(null)
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
+  }
+
+  async function handleExtraer() {
+    if (!comprobanteFile) return
+    setExtracting(true)
+    setError('')
+    try {
+      const { base64, mediaType } = await resizeImageForAnalysis(comprobanteFile)
+      const res = await fetch('/.netlify/functions/extraer-datos', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ image: base64, mediaType }),
+      })
+
+      const rawResponse = await res.text()
+      let data = null
+      try {
+        data = rawResponse ? JSON.parse(rawResponse) : null
+      } catch {
+        // La respuesta no fue JSON (por ejemplo, una página de error del hosting).
+      }
+
+      if (!res.ok || !data) {
+        throw new Error(
+          `Error del servidor (HTTP ${res.status}): ${data?.error || rawResponse.slice(0, 300) || 'sin detalle'}${
+            data?.detail ? ` — ${data.detail}` : ''
+          }`
+        )
+      }
+
+      setForm((f) => ({
+        ...f,
+        comprobante_nro: data.comprobante_nro || f.comprobante_nro,
+        proveedor: data.proveedor || f.proveedor,
+      }))
+    } catch (err) {
+      console.error('Error al extraer datos del comprobante:', err)
+      setError('No se pudieron extraer los datos del comprobante. Revisá la consola del navegador para más detalles.')
+    } finally {
+      setExtracting(false)
+    }
   }
 
   async function handleSubmit(e) {
@@ -123,15 +201,26 @@ export default function GastoForm({ initial, onSave, onClose, saving }) {
           </Field>
         </div>
 
-        <Field label="Proveedor (opcional)">
-          <input
-            type="text"
-            value={form.proveedor}
-            onChange={(e) => update('proveedor', e.target.value)}
-            placeholder="Ej: Librería Central"
-            className="input"
-          />
-        </Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Proveedor (opcional)">
+            <input
+              type="text"
+              value={form.proveedor}
+              onChange={(e) => update('proveedor', e.target.value)}
+              placeholder="Ej: Librería Central"
+              className="input"
+            />
+          </Field>
+          <Field label="Comprobante Nro. (opcional)">
+            <input
+              type="text"
+              value={form.comprobante_nro}
+              onChange={(e) => update('comprobante_nro', e.target.value)}
+              placeholder="Ej: 0001-00012345"
+              className="input"
+            />
+          </Field>
+        </div>
 
         <Field label="Notas (opcional)">
           <textarea
@@ -144,11 +233,32 @@ export default function GastoForm({ initial, onSave, onClose, saving }) {
 
         <Field label="Foto del comprobante (opcional)">
           <input
+            ref={fileInputRef}
             type="file"
             accept="image/*"
             onChange={(e) => setComprobanteFile(e.target.files?.[0] || null)}
-            className="input"
+            className="hidden"
           />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="input flex-1 text-left text-ink-muted hover:bg-sand-50"
+            >
+              Seleccionar archivo
+            </button>
+            <button
+              type="button"
+              onClick={handleExtraer}
+              disabled={!comprobanteFile || extracting}
+              className="whitespace-nowrap rounded-xl border border-sand-200 px-3 py-2 text-sm font-medium text-ink-900 hover:bg-sand-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {extracting ? 'Analizando…' : 'Extraer datos'}
+            </button>
+          </div>
+          {comprobanteFile && (
+            <p className="mt-1.5 text-xs text-ink-muted">{comprobanteFile.name}</p>
+          )}
         </Field>
 
         {error && <p className="text-sm text-coral-500">{error}</p>}

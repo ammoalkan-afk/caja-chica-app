@@ -58,6 +58,54 @@ export async function deleteReposicion(id) {
   if (error) throw error
 }
 
+// ---------- USUARIOS ----------
+
+export async function fetchUsuarios() {
+  const { data, error } = await supabase.from('perfiles').select('*').order('nombre', { ascending: true })
+  if (error) throw error
+  return data
+}
+
+async function callAuthedFunction(path, payload) {
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+  if (sessionError) throw sessionError
+  const token = sessionData?.session?.access_token
+  if (!token) throw new Error('No hay una sesión activa.')
+
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  })
+
+  const rawResponse = await res.text()
+  let data = null
+  try {
+    data = rawResponse ? JSON.parse(rawResponse) : null
+  } catch {
+    // La respuesta no fue JSON (por ejemplo, una página de error del hosting).
+  }
+
+  if (!res.ok || !data) {
+    const detail = data?.error || rawResponse.slice(0, 300) || 'sin detalle'
+    console.error(`Error al llamar a ${path}:`, res.status, detail)
+    throw new Error(detail)
+  }
+
+  return data
+}
+
+export async function createUsuario(values) {
+  return callAuthedFunction('/.netlify/functions/crear-usuario', values)
+}
+
+export async function gestionarUsuario(payload) {
+  return callAuthedFunction('/.netlify/functions/gestionar-usuario', payload)
+}
+
 export const CATEGORIAS_SUGERIDAS = [
   'Oficina',
   'Transporte',
