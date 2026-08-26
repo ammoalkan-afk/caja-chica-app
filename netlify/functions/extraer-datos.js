@@ -60,11 +60,19 @@ export const handler = async (event) => {
   }
 
   const prompt =
-    'Analiza la imagen de este comprobante o factura y extrae el número de comprobante ' +
-    '(número de factura, ticket o recibo) y el nombre del proveedor o comercio emisor. ' +
-    'Responde ÚNICAMENTE con un JSON válido de la forma {"comprobante_nro": "...", "proveedor": "..."}, ' +
+    'Esta imagen es una factura o comprobante de compra paraguayo. Tiene una estructura típica que debés seguir con cuidado:\n\n' +
+    '1. ARRIBA DE TODO aparece el nombre de la EMPRESA/NEGOCIO que vende (el emisor de la factura) junto con su R.U.C. ' +
+    'Ejemplo: "RED GOAL S.A." — Ese es el "proveedor" que necesito.\n\n' +
+    '2. MÁS ABAJO hay una línea como "Factura Contado Nro:" o similar, seguida de un número con formato XXX-XXX-XXXXXXX ' +
+    '(ejemplo: "021-003-0049912"). Ese es el "comprobante_nro" que necesito.\n\n' +
+    '3. MÁS ABAJO TODAVÍA hay una sección con "Cliente:" y "CI/RUC:" que identifica a la PERSONA QUE COMPRA. ' +
+    'IGNORÁ COMPLETAMENTE esos datos: no son el proveedor ni el comprobante que busco, aunque tengan un formato parecido de RUC.\n\n' +
+    'Ejemplo de qué NO tomar: si ves "Cliente: JUAN PEREZ  CI/RUC: 1234567-8", eso es el cliente, no lo uses para "proveedor" ni para "comprobante_nro".\n' +
+    'Ejemplo de qué SÍ tomar: si ves "RED GOAL S.A." arriba del todo y más abajo "Factura Contado Nro: 021-003-0049912", ' +
+    'entonces proveedor = "RED GOAL S.A." y comprobante_nro = "021-003-0049912".\n\n' +
+    'Respondé ÚNICAMENTE con un JSON válido de la forma {"comprobante_nro": "...", "proveedor": "..."}, ' +
     'sin texto adicional, sin explicaciones y sin bloques de markdown. ' +
-    'Si no encuentras alguno de los datos, devolvé ese campo como una cadena de texto vacía.'
+    'Si no encontrás alguno de los datos con certeza, devolvé ese campo como una cadena de texto vacía en vez de adivinar.'
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
