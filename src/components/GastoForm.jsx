@@ -15,16 +15,38 @@ const empty = {
   notas: '',
 }
 
-function fileToBase64(file) {
+function readAsDataURL(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result
-      resolve(typeof result === 'string' ? result.split(',')[1] : '')
-    }
-    reader.onerror = reject
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(new Error('No se pudo leer el archivo.'))
     reader.readAsDataURL(file)
   })
+}
+
+// Redimensiona/comprime la foto antes de mandarla a la función de IA para no
+// pasarse del límite de payload de Netlify Functions (~6MB) con fotos de celular.
+async function resizeImageForAnalysis(file, maxWidth = 1500, quality = 0.8) {
+  const dataUrl = await readAsDataURL(file)
+  const img = new Image()
+  await new Promise((resolve, reject) => {
+    img.onload = resolve
+    img.onerror = () => reject(new Error('No se pudo procesar la imagen.'))
+    img.src = dataUrl
+  })
+
+  const scale = Math.min(1, maxWidth / img.width)
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(img.width * scale)
+  canvas.height = Math.round(img.height * scale)
+  const ctx = canvas.getContext('2d')
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('No se pudo comprimir la imagen.'))), 'image/jpeg', quality)
+  })
+  const resizedDataUrl = await readAsDataURL(blob)
+  return { base64: resizedDataUrl.split(',')[1], mediaType: 'image/jpeg' }
 }
 
 export default function GastoForm({ initial, onSave, onClose, saving }) {
@@ -44,22 +66,37 @@ export default function GastoForm({ initial, onSave, onClose, saving }) {
     setExtracting(true)
     setError('')
     try {
-      const base64 = await fileToBase64(comprobanteFile)
+      const { base64, mediaType } = await resizeImageForAnalysis(comprobanteFile)
       const res = await fetch('/.netlify/functions/extraer-datos', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ image: base64, mediaType: comprobanteFile.type || 'image/jpeg' }),
+        body: JSON.stringify({ image: base64, mediaType }),
       })
-      if (!res.ok) throw new Error('Respuesta no exitosa del servidor')
-      const data = await res.json()
+
+      const rawResponse = await res.text()
+      let data = null
+      try {
+        data = rawResponse ? JSON.parse(rawResponse) : null
+      } catch {
+        // La respuesta no fue JSON (por ejemplo, una página de error del hosting).
+      }
+
+      if (!res.ok || !data) {
+        throw new Error(
+          `Error del servidor (HTTP ${res.status}): ${data?.error || rawResponse.slice(0, 300) || 'sin detalle'}${
+            data?.detail ? ` — ${data.detail}` : ''
+          }`
+        )
+      }
+
       setForm((f) => ({
         ...f,
         comprobante_nro: data.comprobante_nro || f.comprobante_nro,
         proveedor: data.proveedor || f.proveedor,
       }))
     } catch (err) {
-      setError('No se pudieron extraer los datos del comprobante.')
-      console.error(err)
+      console.error('Error al extraer datos del comprobante:', err)
+      setError('No se pudieron extraer los datos del comprobante. Revisá la consola del navegador para más detalles.')
     } finally {
       setExtracting(false)
     }

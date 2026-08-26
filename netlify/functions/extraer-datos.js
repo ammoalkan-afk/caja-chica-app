@@ -1,3 +1,30 @@
+// Netlify corta la conexión antes de invocar la función si el body es demasiado
+// grande (probado empíricamente: falla por encima de ~6-7MB), por eso el margen.
+const MAX_BODY_BYTES = 4_500_000
+
+function extractJson(text) {
+  if (!text) return null
+  const cleaned = text
+    .trim()
+    .replace(/^```(?:json)?/i, '')
+    .replace(/```$/i, '')
+    .trim()
+  try {
+    return JSON.parse(cleaned)
+  } catch {
+    // fall through to brace-matching below
+  }
+  const match = cleaned.match(/\{[\s\S]*\}/)
+  if (match) {
+    try {
+      return JSON.parse(match[0])
+    } catch {
+      // give up, caller handles null
+    }
+  }
+  return null
+}
+
 export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Método no permitido.' }) }
@@ -6,16 +33,26 @@ export const handler = async (event) => {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
     console.error('Falta la variable de entorno ANTHROPIC_API_KEY.')
-    return { statusCode: 500, body: JSON.stringify({ error: 'El servidor no está configurado correctamente.' }) }
+    return { statusCode: 500, body: JSON.stringify({ error: 'El servidor no tiene configurada ANTHROPIC_API_KEY.' }) }
+  }
+
+  const bodyLength = event.body ? event.body.length : 0
+  if (bodyLength > MAX_BODY_BYTES) {
+    return {
+      statusCode: 413,
+      body: JSON.stringify({
+        error: `La imagen es demasiado grande (${(bodyLength / 1_000_000).toFixed(1)}MB). Probá con una foto más liviana.`,
+      }),
+    }
   }
 
   let image, mediaType
   try {
-    const body = JSON.parse(event.body || '{}')
-    image = body.image
-    mediaType = body.mediaType || 'image/jpeg'
-  } catch {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Cuerpo de la petición inválido.' }) }
+    const parsedBody = JSON.parse(event.body || '{}')
+    image = parsedBody.image
+    mediaType = parsedBody.mediaType || 'image/jpeg'
+  } catch (err) {
+    return { statusCode: 400, body: JSON.stringify({ error: `Cuerpo de la petición inválido: ${err.message}` }) }
   }
 
   if (!image) {
@@ -62,21 +99,39 @@ export const handler = async (event) => {
       }),
     })
 
+    const responseText = await response.text()
+
     if (!response.ok) {
-      const errText = await response.text()
-      console.error('Error de la API de Anthropic:', errText)
-      return { statusCode: 502, body: JSON.stringify({ error: 'No se pudo analizar la imagen.' }) }
+      console.error('Error de la API de Anthropic:', response.status, responseText)
+      return {
+        statusCode: 502,
+        body: JSON.stringify({
+          error: `La IA respondió con un error (HTTP ${response.status}).`,
+          detail: responseText.slice(0, 500),
+        }),
+      }
     }
 
-    const data = await response.json()
-    const rawText = data.content?.[0]?.text || '{}'
-
-    let parsed
+    let data
     try {
-      parsed = JSON.parse(rawText)
-    } catch {
-      const match = rawText.match(/\{[\s\S]*\}/)
-      parsed = match ? JSON.parse(match[0]) : {}
+      data = JSON.parse(responseText)
+    } catch (err) {
+      console.error('La respuesta de Anthropic no es JSON válido:', responseText)
+      return {
+        statusCode: 502,
+        body: JSON.stringify({ error: 'La IA devolvió una respuesta no válida.', detail: responseText.slice(0, 500) }),
+      }
+    }
+
+    const rawText = data.content?.[0]?.text || ''
+    const parsed = extractJson(rawText)
+
+    if (!parsed) {
+      console.error('No se pudo interpretar el JSON devuelto por la IA:', rawText)
+      return {
+        statusCode: 502,
+        body: JSON.stringify({ error: 'No se pudo interpretar la respuesta de la IA.', detail: rawText.slice(0, 500) }),
+      }
     }
 
     return {
@@ -88,6 +143,6 @@ export const handler = async (event) => {
     }
   } catch (err) {
     console.error('Error al extraer datos del comprobante:', err)
-    return { statusCode: 500, body: JSON.stringify({ error: 'Error interno al procesar la imagen.' }) }
+    return { statusCode: 500, body: JSON.stringify({ error: `Error interno: ${err.message}` }) }
   }
 }
