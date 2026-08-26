@@ -24,9 +24,20 @@ export const handler = async (event) => {
     auth: { autoRefreshToken: false, persistSession: false },
   })
 
+  // auth.admin.* solo funciona con la service_role key real (bypasea RLS). Si esto falla,
+  // SUPABASE_SERVICE_ROLE_KEY tiene un valor incorrecto (ej. se pegó la anon key por error),
+  // y sin este chequeo el síntoma es un confuso "no tenés permisos de administrador" para
+  // cualquier admin real, porque la consulta a "perfiles" queda bloqueada por RLS.
+  const { error: adminCheckError } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1 })
+  if (adminCheckError) {
+    console.error('SUPABASE_SERVICE_ROLE_KEY inválida (sin privilegios de admin):', adminCheckError.message)
+    return { statusCode: 500, body: JSON.stringify({ error: 'La configuración del servidor (SUPABASE_SERVICE_ROLE_KEY) es inválida.' }) }
+  }
+
   // Verificamos que el token pertenezca a una sesión válida...
   const { data: callerData, error: callerError } = await supabaseAdmin.auth.getUser(token)
   if (callerError || !callerData?.user) {
+    console.error('Token de sesión inválido o expirado:', callerError?.message)
     return { statusCode: 401, body: JSON.stringify({ error: 'Sesión inválida o expirada.' }) }
   }
 
@@ -38,6 +49,11 @@ export const handler = async (event) => {
     .single()
 
   if (perfilError || callerPerfil?.rol !== 'admin') {
+    console.error(
+      'Acceso denegado en crear-usuario. userId:', callerData.user.id,
+      'perfilError:', perfilError?.message, perfilError?.code,
+      'rolEncontrado:', callerPerfil?.rol
+    )
     return { statusCode: 403, body: JSON.stringify({ error: 'No tenés permisos de administrador para esta acción.' }) }
   }
 
