@@ -7,37 +7,55 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [perfil, setPerfil] = useState(null)
   const [loading, setLoading] = useState(true)
-
-  async function loadPerfil(userId) {
-    if (!userId) {
-      setPerfil(null)
-      return
-    }
-    const { data, error } = await supabase.from('perfiles').select('*').eq('id', userId).single()
-    if (error) {
-      console.error('No se pudo cargar el perfil del usuario:', error)
-      setPerfil(null)
-      return
-    }
-    setPerfil(data)
-  }
+  const [inactiveMessage, setInactiveMessage] = useState('')
 
   useEffect(() => {
     let active = true
 
-    supabase.auth.getSession().then(async ({ data }) => {
-      const sessionUser = data.session?.user ?? null
+    async function syncSession(session) {
+      const sessionUser = session?.user ?? null
+
+      if (!sessionUser) {
+        if (active) {
+          setUser(null)
+          setPerfil(null)
+        }
+        return
+      }
+
+      const { data, error } = await supabase.from('perfiles').select('*').eq('id', sessionUser.id).single()
       if (!active) return
+
+      if (error) {
+        console.error('No se pudo cargar el perfil del usuario:', error)
+        setUser(sessionUser)
+        setPerfil(null)
+        return
+      }
+
+      if (data.activo === false) {
+        setInactiveMessage('Tu cuenta está inactiva. Contactá a un administrador.')
+        setUser(null)
+        setPerfil(null)
+        await supabase.auth.signOut()
+        return
+      }
+
+      setInactiveMessage('')
       setUser(sessionUser)
-      await loadPerfil(sessionUser?.id)
-      if (active) setLoading(false)
+      setPerfil(data)
+    }
+
+    supabase.auth.getSession().then(({ data }) => {
+      syncSession(data.session).finally(() => {
+        if (active) setLoading(false)
+      })
     })
 
-    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      const sessionUser = session?.user ?? null
-      setUser(sessionUser)
-      await loadPerfil(sessionUser?.id)
-      setLoading(false)
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      syncSession(session).finally(() => {
+        if (active) setLoading(false)
+      })
     })
 
     return () => {
@@ -47,6 +65,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   async function signIn(email, password) {
+    setInactiveMessage('')
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
   }
@@ -56,7 +75,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, perfil, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, perfil, loading, inactiveMessage, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   )

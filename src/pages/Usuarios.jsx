@@ -1,15 +1,22 @@
 import { useEffect, useState } from 'react'
 import { Plus, RefreshCcw as RefreshIcon } from 'lucide-react'
-import { fetchUsuarios, createUsuario } from '../lib/data'
+import { fetchUsuarios, createUsuario, gestionarUsuario } from '../lib/data'
+import { useAuth } from '../context/AuthContext'
 import UsuariosTable from '../components/UsuariosTable'
 import UsuarioForm from '../components/UsuarioForm'
+import CambiarPasswordForm from '../components/CambiarPasswordForm'
+import ConfirmDialog from '../components/ConfirmDialog'
 
 export default function Usuarios() {
+  const { user } = useAuth()
   const [usuarios, setUsuarios] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [passwordTarget, setPasswordTarget] = useState(null)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [actionSaving, setActionSaving] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -37,6 +44,38 @@ export default function Usuarios() {
       setShowForm(false)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleToggleActivo(usuario) {
+    const accion = usuario.activo !== false ? 'desactivar' : 'reactivar'
+    try {
+      const updated = await gestionarUsuario({ accion, userId: usuario.id })
+      setUsuarios((prev) => prev.map((u) => (u.id === updated.id ? updated : u)))
+    } catch (err) {
+      alert('Ocurrió un error al actualizar el estado del usuario.')
+      console.error(err)
+    }
+  }
+
+  async function handleChangePassword(password) {
+    setActionSaving(true)
+    try {
+      await gestionarUsuario({ accion: 'cambiar_password', userId: passwordTarget.id, password })
+      setPasswordTarget(null)
+    } finally {
+      setActionSaving(false)
+    }
+  }
+
+  async function handleDelete() {
+    try {
+      await gestionarUsuario({ accion: 'eliminar', userId: deleteTarget.id })
+      setUsuarios((prev) => prev.filter((u) => u.id !== deleteTarget.id))
+      setDeleteTarget(null)
+    } catch (err) {
+      alert('Ocurrió un error al eliminar el usuario.')
+      console.error(err)
     }
   }
 
@@ -69,11 +108,35 @@ export default function Usuarios() {
         {loading ? (
           <p className="py-10 text-center text-sm text-ink-muted">Cargando…</p>
         ) : (
-          <UsuariosTable usuarios={usuarios} />
+          <UsuariosTable
+            usuarios={usuarios}
+            currentUserId={user?.id}
+            onToggleActivo={handleToggleActivo}
+            onChangePassword={(u) => setPasswordTarget(u)}
+            onDelete={(u) => setDeleteTarget(u)}
+          />
         )}
       </div>
 
       {showForm && <UsuarioForm saving={saving} onClose={() => setShowForm(false)} onSave={handleCreate} />}
+
+      {passwordTarget && (
+        <CambiarPasswordForm
+          usuario={passwordTarget}
+          saving={actionSaving}
+          onClose={() => setPasswordTarget(null)}
+          onSave={handleChangePassword}
+        />
+      )}
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Eliminar usuario"
+          message={`¿Seguro que quieres eliminar a "${deleteTarget.nombre || deleteTarget.email}"? Esta acción no se puede deshacer.`}
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
     </div>
   )
 }

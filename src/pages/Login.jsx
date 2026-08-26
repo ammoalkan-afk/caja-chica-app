@@ -4,7 +4,7 @@ import { Wallet } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 export default function Login() {
-  const { user, loading, signIn } = useAuth()
+  const { user, loading, signIn, inactiveMessage } = useAuth()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -62,7 +62,7 @@ export default function Login() {
             />
           </Field>
 
-          {error && <p className="text-sm text-coral-500">{error}</p>}
+          {(error || inactiveMessage) && <p className="text-sm text-coral-500">{error || inactiveMessage}</p>}
 
           <button
             type="submit"
